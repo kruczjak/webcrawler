@@ -3,6 +3,7 @@ package webcrawler
 import org.htmlcleaner.TagNode
 
 import scala.concurrent.Future
+import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
 object WebCrawler extends App {
@@ -13,43 +14,34 @@ object WebCrawler extends App {
   import org.htmlcleaner.HtmlCleaner
   import java.net.URL
 
-  def operation(url: String, level: Int, list: List[String]): Future[(Array[TagNode], Int, List[String])] = Future {
-    list :+ url
-    val cleaner = new HtmlCleaner
-    val rootNode = cleaner.clean(new URL(url))
-    (rootNode.getElementsByName("a", true), level, list)
-  }
+  def operate(url: String): Seq[String] = {
+    try {
+      val cleaner = new HtmlCleaner
+      val props = cleaner.getProperties
+      val rootNode = cleaner.clean(new URL(url))
 
-//  val maxLevel = readInt()
-  val maxLevel = 5
-  val url = "http://interia.pl"
-  val start = operation(url, maxLevel, List[String]())
-
-  def ok(elements: Array[TagNode], level:Int, list: List[String]): Unit = {
-    elements foreach { elem =>
-      val url = elem.getAttributeByName("href")
-      println(maxLevel - level + " " + url.toString)
-      level match {
-        case 0 =>
-        case _ =>
-          list.contains(url.toString) match {
-            case false =>
-              val f = operation(url.toString, level-1, list)
-              f onComplete {
-                case Success((a, b, l)) => ok(a, b, l)
-                case Failure(err) =>  println("Error: " + err.getMessage)
-              }
-            case true =>
-          }
+      val nodes = rootNode.getElementsByName("a", true).map(_.getAttributeByName("href")).map {
+        case ent if !(ent contains "http") => url + "/" + ent
+        case ent => ent
       }
+      nodes
+    }
+    catch {
+      case _: Throwable => Seq()
     }
   }
 
-  start onComplete {
-    case Success((a, b, l)) => ok(a, b, l)
-    case Failure(err) =>  println("Error: " + err.getMessage)
-  }
+  val maxLevel = 9
+  val start = "http://galaxy.agh.edu.pl/~balis/dydakt"
+  var urls = Seq(start)
 
-  Thread.sleep(990000)
+  for (levelNow <- 1 to maxLevel) {
+    val futureUrls = urls.map(url => Future { operate(url) } )
+    val future = Future.sequence(futureUrls).map(_.flatten)
+
+    urls = Await.result(future, 5 minutes)
+    urls.foreach(url => println(levelNow + " " + url))
+    urls = urls.filter(_ contains start)
+  }
 
 }
